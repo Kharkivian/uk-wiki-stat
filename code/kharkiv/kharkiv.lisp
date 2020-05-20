@@ -12,7 +12,8 @@
 		:parse-number
 		:cl-mediawiki-util
 		:cl-json
-		:cl-fad))
+		:cl-fad
+		:uiop))
 
 (defpackage :kharkiv
   (:use :cl :iterate :split-sequence :parse-number)
@@ -29,7 +30,7 @@
     (iter
       (for line = (fare-csv:READ-CSV-LINE in))
       (while line)
-      (format t "~a~%" (first line))
+      ;; (format t "~a~%" (first line))
       (collect (second line)))))
 ;; -
 
@@ -103,15 +104,19 @@
 
 ;; -
 
-(defun generate-report-using-wget (start end)
+(defun get-report-file-name (start end)
+  (format nil "report-~a_~a.csv" start end))
 
-  (with-open-file (out (format nil "report-~a_~a.csv" start end)
+;; -
+
+(defun generate-report-using-wget (start end)
+  (with-open-file (out (get-report-file-name start end)
 		       :direction :output
 		       :if-exists :supersede)
     (fare-csv:write-csv-line '("name" "total" "min" "max" "median") out)
 
     (dolist (article-stats (parse-json-files (format nil "json_~a.txt" end)))
-      (format t "~a~%" (first article-stats))
+      ;; (format t "~a~%" (first article-stats))
       (fare-csv:write-csv-line article-stats out))))
 
 ;; -
@@ -129,25 +134,49 @@
 ;; -
 
 (defun process-period (start end)
-  (let* ((articles (get-page-names))
-	 (links-file (generate-links articles start end)))
+  (unless (probe-file (get-report-file-name start end))
+    (let* ((articles (get-page-names))
+	   (links-file (generate-links articles start end))
+	   (wget-proc (uiop:launch-program `("wget" "-r" "-i" ,links-file)
+					   :output "wget.log"
+					   :error-output :output))
+	   (wget-code (uiop:wait-process wget-proc)))
 
-    (generate-report-using-wget start end)))
+      (format t "wget finished with exit code ~a~%" wget-code)
+
+      (uiop:wait-process (uiop:launch-program
+			  '("mkdir" "js")))
+
+      (format t "copied downloaded files with code ~a~%"
+	      (uiop:wait-process
+	       (uiop:launch-program
+		'("find" "wikimedia.org/" "-type" "f" "-exec" "cp"
+		  "--backup=t" "{}" "js" ";")
+		:output "find.log")))
+      
+      (generate-report-using-wget start end)
+
+      (uiop:wait-process
+       (uiop:launch-program
+	'("rm" "-rf" "js" "wikimedia.org"))))))
+
+;; -
+
+(defun gen-periods (year)
+  (iter
+    (for end in (generate-dates year))
+    (for start previous end)
+    (when start
+      (collect `(,start ,end))))
+  )
 
 ;; -
 
 (defun run ()
-  (let ((periods
-	  (iter
-	    (for end in (generate-dates 2019))
-	    (for start previous end)
-	    (when start
-	      (collect `(,start ,end))))))
+  (let ((periods (gen-periods 2019)))
 
-    ;;(process-period start end)
-
-
-    ))
+    (iter (for period in periods)
+	  (process-period (first period) (second period)))))
 ;; -
 
 ;; (end "2020050100")
