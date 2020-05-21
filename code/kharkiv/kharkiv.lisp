@@ -17,7 +17,9 @@
 
 (defpackage :kharkiv
   (:use :cl :iterate :split-sequence :parse-number)
-  (:export :run))
+  (:export
+   :run
+   :process-period))
 
 (in-package :kharkiv)
 
